@@ -151,7 +151,9 @@ function hex(k,d){var v=(Q.get(k)||'').replace(/[^0-9a-fA-F]/g,''); return '#'+(
 
 // ---------------- palette (from the overlay build: lib.py) ----------------
 var TEAL='#33E8E2', DEEP='#330948', MAG=hex('border','B03CC8'), ACC='#FF2BD6', HOT='#FF2D69', RED='#FF2A4D', WHITE='#FFFFFF';
-var TRAIL='#D89EE4', CODECORE='#5CEDE8';
+var TRAIL='#D89EE4', CODECORE='#B8FFFA';
+var PCYAN='#00FFF0', PMAG='#FF00E6';      // boosted pulse colours
+var POP_SCALE=0.045, SHAKE=3;               // scale pop at attack, shake amplitude (layout px)
 
 // ---------------- geometry (layout.json: chat [1460,620,440,440] on 1920x1080) ----------------
 var LW,LH,F,OUT_W,OUT_H,PAD=0;
@@ -179,7 +181,7 @@ cv.style.width=OUT_W+'px'; cv.style.height=OUT_H+'px';
 cv.width=Math.round(OUT_W*DPR); cv.height=Math.round(OUT_H*DPR);
 
 // working layer = frame + margin (layout units), clipped to page
-var M=32;
+var M=40;
 var LR={x:Math.max(0,F.x-M), y:Math.max(0,F.y-M)}; LR.w=Math.min(LW,F.x+F.w+M)-LR.x; LR.h=Math.min(LH,F.y+F.h+M)-LR.y;
 var lay=document.createElement('canvas'); lay.width=Math.ceil(LR.w*KX); lay.height=Math.ceil(LR.h*KY);
 var lx=lay.getContext('2d');
@@ -221,7 +223,7 @@ function drawLabel(c,alpha){
 // ---------------- cheat-code static ----------------
 var CODE_LIST=['↑↑↓↓←→←→BA','UP UP DOWN DOWN LEFT RIGHT LEFT RIGHT B A','IDDQD','IDKFA','NOCLIP','GOD MODE','sv_cheats 1','fly','god','ROSEBUD','HESOYAM',
                'IDCLIP','noclip','BAGUVIX','AEZAKMI','impulse 101','↑↑↓↓←→←→ B A START'];
-var CODE_OP=0.38, CODE_DUR=0.32;
+var CODE_OP=0.82, CODE_DUR=0.92, CODE_HOLD=0.6, CODE_MIN=5, CODE_MAX=8, CODE_SMIN=12, CODE_SMAX=16;
 var fragCache=new Map();
 function tint(mask,col){ var c=document.createElement('canvas'); c.width=mask.width; c.height=mask.height; var x=c.getContext('2d'); x.drawImage(mask,0,0); x.globalCompositeOperation='source-in'; x.fillStyle=col; x.fillRect(0,0,c.width,c.height); return c; }
 function buildFrag(txt,size,edge){
@@ -240,29 +242,36 @@ function buildFrag(txt,size,edge){
   if(vert){ for(var c0=0;c0<mk.width;c0+=st){ y.drawImage(mk,c0,0,st,mk.height,c0,Math.round((r()*6-3)*k),st,mk.height); } }
   else { for(var r0=0;r0<mk.height;r0+=st){ y.drawImage(mk,0,r0,mk.width,st,Math.round((r()*6-3)*k),r0,mk.width,st); } }
   var f={vert:vert,w:mk.width/KX,h:mk.height/KY,
-    n:{core:tint(mk,CODECORE),acc:tint(mk,ACC),teal:tint(mk,TEAL),deep:tint(mk,DEEP)},
-    t:{core:tint(tn,CODECORE),acc:tint(tn,ACC),teal:tint(tn,TEAL),deep:tint(tn,DEEP)}};
+    n:{core:tint(mk,CODECORE),acc:tint(mk,PMAG),teal:tint(mk,PCYAN),deep:tint(mk,DEEP)},
+    t:{core:tint(tn,CODECORE),acc:tint(tn,PMAG),teal:tint(tn,PCYAN),deep:tint(tn,DEEP)}};
   fragCache.set(key,f); return f;
 }
 function planCodes(seed){
   var r=mulberry(seed), edges=['left','top','bottom','right'];
   for(var i=edges.length-1;i>0;i--){var j=Math.floor(r()*(i+1)),t=edges[i];edges[i]=edges[j];edges[j]=t;}
-  var n=r()<0.4?4:3, used={}, out=[];
+  var n=CODE_MIN+Math.floor(r()*(CODE_MAX-CODE_MIN+1)), used={}, picks=[], perEdge={left:[],top:[],bottom:[],right:[]};
   for(var q=0;q<n;q++){
-    var txt; do{ txt=CODE_LIST[Math.floor(r()*CODE_LIST.length)]; }while(used[txt]); used[txt]=1;
-    var edge=edges[q], size=9+Math.floor(r()*4), f=buildFrag(txt,size,edge), x, y, inset=r()<0.35?(1+r()*4):0;
-    var gap=TIGHT?-1:0;
-    if(f.vert){
-      var span=F.h-68-f.h; if(span<0) span=0;
-      y=F.y+34+r()*span;
-      x=edge==='left'?(F.x-4-f.w+inset-gap*(f.w-3)):(F.x+F.w+4-inset+gap*(f.w-3));
-    }else{
-      var right=edge==='bottom'&&!TIGHT?230:34, sp=F.w-34-right-f.w; if(sp<0) sp=0;
-      x=F.x+34+r()*sp;
-      y=edge==='top'?(F.y-f.h-1+inset-gap*(f.h-3)):(F.y+F.h+5-inset+gap*(f.h-3));
-    }
-    out.push({f:f,x:x,y:y,edge:edge,ph:r()*0.06,seed:Math.floor(r()*1e9)});
+    var txt, tries=0; do{ txt=CODE_LIST[Math.floor(r()*CODE_LIST.length)]; }while(used[txt]&&++tries<50); used[txt]=1;
+    perEdge[edges[q%4]].push(txt);
   }
+  var out=[];
+  edges.forEach(function(edge){
+    var list=perEdge[edge], k=list.length; if(!k) return;
+    list.forEach(function(txt,idx){
+      var size=CODE_SMIN+Math.floor(r()*(CODE_SMAX-CODE_SMIN+1)), f=buildFrag(txt,size,edge), x, y, inset=r()<0.35?(1+r()*4):0;
+      var gap=TIGHT?-1:0;
+      if(f.vert){
+        var a0=F.y+30, a1=F.y+F.h-30, sl=(a1-a0)/k, s0=a0+sl*idx, span=sl-f.h;
+        y=span>0?s0+r()*span:Math.max(a0,Math.min(a1-f.h,s0+(sl-f.h)/2));
+        x=edge==='left'?(F.x-4-f.w+inset-gap*(f.w-3)):(F.x+F.w+4-inset+gap*(f.w-3));
+      }else{
+        var b0=F.x+30, b1=F.x+F.w-(edge==='bottom'&&!TIGHT?225:30), sw=(b1-b0)/k, x0=b0+sw*idx, sp=sw-f.w;
+        x=sp>0?x0+r()*sp:Math.max(b0-10,Math.min(b1-f.w,x0+(sw-f.w)/2));
+        y=edge==='top'?(F.y-f.h-1+inset-gap*(f.h-3)):(F.y+F.h+3-inset+gap*(f.h-3));
+      }
+      out.push({f:f,x:x,y:y,edge:edge,ph:r()*0.08,seed:Math.floor(r()*1e9)});
+    });
+  });
   return out;
 }
 function drawCodes(c,p,u,step){
@@ -271,15 +280,16 @@ function drawCodes(c,p,u,step){
   for(var i=0;i<p.codes.length;i++){
     var g=p.codes[i], uu=u-g.ph; if(uu<0) continue;
     var r=mulberry(g.seed^(step*2654435761));
-    var v=Math.min(1,uu/0.04)*(1-Math.pow(u/CODE_DUR,2));
-    if(r()<0.25) continue;                         // flicker off
-    v*=0.6+0.4*r();
+    var tail=u<CODE_HOLD?1:1-Math.pow((u-CODE_HOLD)/(CODE_DUR-CODE_HOLD),2);
+    var v=Math.min(1,uu/0.03)*tail;
+    if(r()<0.2) continue;                          // flicker off
+    v*=0.75+0.25*r();
     var set=r()<0.5?g.f.t:g.f.n, op=CODE_OP*v, f=g.f;
-    var jx=f.vert?0:Math.round(r()*4-2), jy=f.vert?Math.round(r()*4-2):0;
-    var x=g.x+jx, y=g.y+jy;
-    // optional drop-out gap along the reading direction
-    var len=f.vert?f.h:f.w, g0=-1, gl=0; if(r()<0.5){ g0=r()*Math.max(1,len-8); gl=3+r()*6; }
-    var layers=[[set.deep,1,1,Math.min(1,op*1.4)],[set.acc,2,0,op*0.75],[set.teal,-2,0,op*0.6],[set.core,0,0,op]];
+    var jx=f.vert?0:Math.round(r()*6-3), jy=f.vert?Math.round(r()*6-3):0;
+    var x=g.x+jx, y=g.y+jy, rs=2+r()*2;
+    var len=f.vert?f.h:f.w, g0=-1, gl=0; if(r()<0.45){ g0=r()*Math.max(1,len-10); gl=3+r()*8; }
+    var layers=[[set.deep,1,1,Math.min(1,op*1.1)],[set.acc,rs,0,op*0.85],[set.teal,-rs,0,op*0.75],[set.core,0,0,op]];
+    if(f.vert){ layers[1][1]=0; layers[1][2]=rs; layers[2][1]=0; layers[2][2]=-rs; }
     for(var L=0;L<layers.length;L++){
       var im=layers[L][0], dx=layers[L][1], dy=layers[L][2]; c.globalAlpha=layers[L][3];
       if(g0<0){ c.drawImage(im,x+dx,y+dy,f.w,f.h); continue; }
@@ -291,8 +301,10 @@ function drawCodes(c,p,u,step){
   c.globalAlpha=1; c.imageSmoothingEnabled=true;
 }
 
-// ---------------- pulses: queue / merge, max ~3 per second ----------------
-var PULSE_DUR=0.34, MIN_GAP=340, MAX_PENDING=3;
+// ---------------- pulses: queue / merge, max ~3 starts per second ----------------
+// Envelope (~1.0 s): hard attack (0-60 ms) -> flickering hold (to 450 ms) -> decay (to 1000 ms).
+// A message arriving mid-pulse starts a new pulse (re-attack); overlapping pulses combine by max.
+var PULSE_DUR=1.0, ATTACK=0.06, HOLD_END=0.45, MIN_GAP=340, MAX_PENDING=3;
 var pulses=[], pending=0, lastFire=-1e9, pulseCount=0, msgCount=0, mergedCount=0;
 function onChat(){ msgCount++; if(pending>=MAX_PENDING) mergedCount++; pending=Math.min(MAX_PENDING,pending+1); }
 function firePulse(nowMs){
@@ -301,69 +313,85 @@ function firePulse(nowMs){
   lastFire=nowMs; pulseCount++;
 }
 function pumpQueue(nowMs){ if(pending>0&&nowMs-lastFire>=MIN_GAP){ pending--; firePulse(nowMs); } }
+function eout(x){x=Math.max(0,Math.min(1,x)); return 1-Math.pow(1-x,3);}
+function pulseEnv(u,flick){            // flick: 0..1 random per 33 ms step
+  if(u<0||u>=PULSE_DUR) return 0;
+  if(u<ATTACK) return eout(u/ATTACK);
+  if(u<HOLD_END) return flick<0.12?0.45:0.78+0.22*flick;          // strobe-y hold
+  var p=(u-HOLD_END)/(PULSE_DUR-HOLD_END); return 0.85*Math.pow(1-p,1.6)*(0.85+0.15*flick);
+}
+function popEnv(u){                     // scale pop: snap out, ease back
+  if(u<0||u>=PULSE_DUR) return 0;
+  if(u<0.05) return eout(u/0.05);
+  return Math.exp(-(u-0.05)/0.14);
+}
 
 // ---------------- render ----------------
 function render(nowMs){
   var t=nowMs/1000, step=Math.floor(nowMs/33);
-  pulses=pulses.filter(function(p){return t-p.t0<0.5;});
-  var e=0, ep=null; for(var i=0;i<pulses.length;i++){var b=burst(t-pulses[i].t0,PULSE_DUR); if(b>e){e=b;ep=pulses[i];}}
+  pulses=pulses.filter(function(p){return t-p.t0<PULSE_DUR+0.05;});
+  var e=0, ep=null, pop=0;
+  for(var i=0;i<pulses.length;i++){ var u=t-pulses[i].t0, fr=mulberry(pulses[i].seed^(step*97531))();
+    var b=pulseEnv(u,fr); if(b>e){e=b;ep=pulses[i];} pop=Math.max(pop,popEnv(u)); }
   var c=lx; c.setTransform(1,0,0,1,0,0); c.clearRect(0,0,lay.width,lay.height);
   c.setTransform(KX,0,0,KY,-LR.x*KX,-LR.y*KY); c.lineJoin='miter'; c.lineCap='butt';
+  var r=ep?mulberry(ep.seed^(step*40503)):null;
   // deep shadow under the border on pulse
-  if(e>0.01){ pathPoly(c,PTS,3,2); c.strokeStyle=DEEP; c.globalAlpha=0.85*e; c.lineWidth=3; c.stroke(); c.globalAlpha=1; }
-  // base border with shimmer
+  if(e>0.01){ pathPoly(c,PTS,4,3); c.strokeStyle=DEEP; c.globalAlpha=0.9*e; c.lineWidth=4+2*e; c.stroke(); c.globalAlpha=1; }
+  // base border with shimmer; thicker + hotter during pulse
   var shim=0.85+0.1*Math.sin(2*Math.PI*t/2)+0.05*Math.sin(2*Math.PI*t*15/16);
-  pathPoly(c,PTS); glowStroke(c,MAG,Math.min(1,shim*(1+0.35*e)),2,0.7+0.5*e);
+  pathPoly(c,PTS); glowStroke(c,e>0.3?PMAG:MAG,Math.min(1,shim*(1+0.6*e)),2+2*e,0.7+1.6*e);
   // teal corner brackets
   var bx0=F.x-BRK,by0=F.y-BRK,bx1=F.x+F.w+BRK,by1=F.y+F.h+BRK,BL=30;
   c.beginPath(); [[bx0,by0,1,1],[bx1,by0,-1,1],[bx1,by1,-1,-1],[bx0,by1,1,-1]].forEach(function(q){seg(c,q[0],q[1],q[0]+q[2]*BL,q[1]);seg(c,q[0],q[1],q[0],q[1]+q[3]*BL);});
-  glowStroke(c,TEAL,0.7+0.3*per(t,4,0.5)+0.2*e,2,0.6);
+  glowStroke(c,e>0.3?PCYAN:TEAL,0.7+0.3*per(t,4,0.5)+0.3*e,2+e,0.6+1.0*e);
   // running light around the border
   var head=t/(16/3), n=28, len=0.10;
   for(var k=0;k<n;k++){ var p0=perimPoint(head-len*k/n), p1=perimPoint(head-len*(k+1)/n);
     c.beginPath(); c.moveTo(p0[0],p0[1]); c.lineTo(p1[0],p1[1]); glowStroke(c,TRAIL,0.7*Math.pow(1-k/n,1.5),2,1.0); }
   if(!TIGHT){
-    // side ticks (right side, outside)
     c.beginPath(); for(var y=F.y+40,kk=0;y<F.y+F.h-40;y+=22,kk++){ seg(c,F.x+F.w+10,y+0.5,F.x+F.w+(kk%3===0?16:13),y+0.5); }
-    c.strokeStyle=TEAL; c.globalAlpha=0.4; c.lineWidth=1; c.stroke(); c.globalAlpha=1;
-    // label + red status dot
-    var lxp=drawLabel(c,0.8);
+    c.strokeStyle=e>0.3?PCYAN:TEAL; c.globalAlpha=0.4+0.5*e; c.lineWidth=1; c.stroke(); c.globalAlpha=1;
+    var lxp=drawLabel(c,0.8+0.2*e);
     c.beginPath(); c.arc(lxp-10,F.y+F.h+10,3,0,Math.PI*2); c.fillStyle=HOT;
     var da=0.4+0.6*Math.max(e,0.3*per(t,2)); c.globalAlpha=da*0.25; c.fill(); c.beginPath(); c.arc(lxp-10,F.y+F.h+10,2.2,0,Math.PI*2); c.globalAlpha=da; c.fill(); c.globalAlpha=1;
   }
   if(e>0.01){
-    var r=mulberry(ep.seed^(step*40503));
-    // RGB split of the border: cyan left, magenta right
-    var sp=1+4*e*(0.6+0.4*r());
+    // wide RGB split of the border: cyan left/up, magenta right/down, glowing
+    var sp=3+6*e*(0.6+0.4*r()), vy=(r()-0.5)*3*e;
     c.globalCompositeOperation='lighter';
-    pathPoly(c,PTS,-sp,0); c.strokeStyle=TEAL; c.globalAlpha=0.75*e; c.lineWidth=2; c.stroke();
-    pathPoly(c,PTS,sp,(r()-0.5)*2*e); c.strokeStyle=ACC; c.globalAlpha=0.85*e; c.stroke();
-    // brightness flash
-    pathPoly(c,PTS); glowStroke(c,WHITE,0.32*e*e,2,0.5);
+    pathPoly(c,PTS,-sp,-vy); glowStroke(c,PCYAN,0.95*e,2+1.5*e,1.2*e);
+    pathPoly(c,PTS,sp,vy);  glowStroke(c,PMAG,1.0*e,2+1.5*e,1.2*e);
+    // brightness flash (strongest on attack)
+    pathPoly(c,PTS); glowStroke(c,WHITE,0.6*e*e,2+e,1.0);
     c.globalCompositeOperation='source-over';
-    // magenta spark at a random border point
-    var su=ep.spark, sn=12;
-    for(var s=0;s<sn;s++){ var a0=perimPoint(su-0.05*s/sn), a1=perimPoint(su-0.05*(s+1)/sn); c.beginPath(); c.moveTo(a0[0],a0[1]); c.lineTo(a1[0],a1[1]); glowStroke(c,s<2?WHITE:ACC,e*Math.pow(1-s/sn,1.2),3,1.2); }
-    var hp=perimPoint(su); c.beginPath(); c.arc(hp[0],hp[1],4+3*e,0,Math.PI*2); c.fillStyle=ACC; c.globalAlpha=0.25*e; c.fill(); c.globalAlpha=1;
+    // magenta spark (two on strong pulses)
+    for(var sk=0;sk<(e>0.6?2:1);sk++){
+      var su=(ep.spark+sk*0.47)%1, sn=14;
+      for(var s=0;s<sn;s++){ var a0=perimPoint(su-0.07*s/sn), a1=perimPoint(su-0.07*(s+1)/sn); c.beginPath(); c.moveTo(a0[0],a0[1]); c.lineTo(a1[0],a1[1]); glowStroke(c,s<2?WHITE:PMAG,e*Math.pow(1-s/sn,1.1),3.5,1.6); }
+      var hp=perimPoint(su); c.beginPath(); c.arc(hp[0],hp[1],5+5*e,0,Math.PI*2); c.fillStyle=PMAG; c.globalAlpha=0.35*e; c.fill(); c.globalAlpha=1;
+    }
   }
-  // cheat-code static (one set per live pulse)
   for(var pi=0;pi<pulses.length;pi++) drawCodes(c,pulses[pi],t-pulses[pi].t0,step);
   c.setTransform(1,0,0,1,0,0);
 
-  // ---- compose layer -> page, with horizontal slice jitter on pulse ----
-  var m=ctx; m.setTransform(1,0,0,1,0,0);
-  m.clearRect(Math.floor(LPX)-2,Math.floor(LPY)-2,lay.width+4,lay.height+4);
+  // ---- compose layer -> page: scale pop about the frame centre + screen shake + slice jitter ----
+  var m=ctx; m.setTransform(1,0,0,1,0,0); m.clearRect(0,0,cv.width,cv.height);
+  var sc=1+POP_SCALE*pop, shx=0, shy=0;
+  if(e>0.01){ var sr=mulberry((ep.seed+0x51ed)^(step*374761393)); shx=(sr()*2-1)*SHAKE*e; shy=(sr()*2-1)*SHAKE*e; }
+  var cx=(F.x+F.w/2)*KX, cy=(F.y+F.h/2)*KY;
+  m.setTransform(sc,0,0,sc,cx-sc*cx+shx*KX,cy-sc*cy+shy*KY);
   if(e>0.01){
-    var rr=mulberry((ep.seed+0x9e37)^(step*2246822519)), y0=0, shiftMax=7*Math.min(1,e*1.3)*KX;
+    var rr=mulberry((ep.seed+0x9e37)^(step*2246822519)), y0=0, shiftMax=10*Math.min(1,e*1.3)*KX;
     while(y0<lay.height){
-      var hgt=Math.min(lay.height-y0,Math.round((8+rr()*40)*KY)), dx=0;
-      if(rr()<0.3) dx=Math.round((rr()*2-1)*shiftMax);
+      var hgt=Math.min(lay.height-y0,Math.round((6+rr()*36)*KY)), dx=0;
+      if(rr()<0.35) dx=Math.round((rr()*2-1)*shiftMax);
       m.drawImage(lay,0,y0,lay.width,hgt,LPX+dx,LPY+y0,lay.width,hgt);
       y0+=hgt;
     }
-    m.globalCompositeOperation='lighter'; m.globalAlpha=0.1*e; m.drawImage(lay,LPX,LPY); m.globalAlpha=1; m.globalCompositeOperation='source-over';
+    m.globalCompositeOperation='lighter'; m.globalAlpha=0.22*e; m.drawImage(lay,LPX,LPY); m.globalAlpha=1; m.globalCompositeOperation='source-over';
   }else m.drawImage(lay,LPX,LPY);
-  // HARD GUARANTEE: the chat interior stays fully transparent
+  // HARD GUARANTEE: erase the chat interior (inset 3 px, untransformed) AFTER pop/shake
   m.setTransform(KX,0,0,KY,0,0); m.globalCompositeOperation='destination-out'; pathPoly(m,INNER); m.fillStyle='#000'; m.fill();
   m.globalCompositeOperation='source-over'; m.setTransform(1,0,0,1,0,0);
 }
