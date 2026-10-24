@@ -12,9 +12,10 @@
     ?channel=name    Twitch channel to watch (default: meetthecheater)
     ?test=1          fake pulse every 2.5 s (preview without chat)
     ?w=&h=           output size in px (default 1920x1080; layout scales to it)
-    ?frameonly=1     page is exactly the frame (440x440 by default) and the frame fills it
+    ?frameonly=1     page is exactly the frame (348x512 by default) and the frame fills it
     ?pad=N           frameonly only: add N px of transparent margin around the frame (room for brackets/ticks/codes)
-    ?fx=&fy=&fw=&fh= override the frame rect in 1920x1080 layout units (default 1460,620,440,440)
+    ?fx=&fy=&fw=&fh= override the frame rect in 1920x1080 layout units (default 1552,548,348,512, the v3-wide overlay)
+    ?cut=N           corner cut size in layout px (default 18)
     ?border=hex      border colour (default B03CC8, the overlay's magenta); accent stays FF2BD6
     ?codes=0         disable the cheat-code static
     ?fps=N           cap the frame rate (default 60)
@@ -155,17 +156,17 @@ var TRAIL='#D89EE4', CODECORE='#B8FFFA';
 var PCYAN='#00FFF0', PMAG='#FF00E6';      // boosted pulse colours
 var POP_SCALE=0.045, SHAKE=3;               // scale pop at attack, shake amplitude (layout px)
 
-// ---------------- geometry (layout.json: chat [1460,620,440,440] on 1920x1080) ----------------
+// ---------------- geometry (v3-wide overlay: chat border centreline [1552,548,348,512] on 1920x1080) ----------------
 var LW,LH,F,OUT_W,OUT_H,PAD=0;
 if(FRAMEONLY){
   PAD=Math.max(0,num('pad',0));
-  var fw0=num('fw',440), fh0=num('fh',440);
+  var fw0=num('fw',348), fh0=num('fh',512);
   LW=fw0+2*PAD; LH=fh0+2*PAD;
   F={x:PAD+1,y:PAD+1,w:fw0-2,h:fh0-2};           // border stroke sits on the outermost 2 px
   OUT_W=num('w',LW); OUT_H=num('h',LH);
 }else{
   LW=1920; LH=1080;
-  F={x:num('fx',1460),y:num('fy',620),w:num('fw',440),h:num('fh',440)};
+  F={x:num('fx',1552),y:num('fy',548),w:num('fw',348),h:num('fh',512)};
   OUT_W=num('w',1920); OUT_H=num('h',1080);
 }
 var TIGHT=FRAMEONLY&&PAD<24;                        // no room outside the border
@@ -190,8 +191,9 @@ var LPX=LR.x*KX, LPY=LR.y*KY;   // layer origin in main-canvas pixels
 function cutrect(x0,y0,x1,y1,c){ // corners cut: top-left and bottom-right (as the overlay)
   return [[x0+c,y0],[x1,y0],[x1,y1-c],[x1-c,y1],[x0,y1],[x0,y0+c]];
 }
-var PTS=cutrect(F.x,F.y,F.x+F.w,F.y+F.h,20);
-var INNER=cutrect(F.x+3,F.y+3,F.x+F.w-3,F.y+F.h-3,18);
+var CUT=num('cut',18);
+var PTS=cutrect(F.x,F.y,F.x+F.w,F.y+F.h,CUT);
+var INNER=cutrect(F.x+3,F.y+3,F.x+F.w-3,F.y+F.h-3,Math.max(0,CUT-2));
 var SEG=[],PER=0;
 for(var i=0;i<PTS.length;i++){var a=PTS[i],b=PTS[(i+1)%PTS.length],l=Math.hypot(b[0]-a[0],b[1]-a[1]);SEG.push([a,b,l,PER]);PER+=l;}
 function perimPoint(u){ var d=((u%1)+1)%1*PER; for(var i=0;i<SEG.length;i++){var s=SEG[i]; if(d<=s[3]+s[2]){var f=(d-s[3])/s[2]; return [s[0][0]+(s[1][0]-s[0][0])*f,s[0][1]+(s[1][1]-s[0][1])*f];}} return PTS[0]; }
@@ -212,8 +214,9 @@ function seg(c,x0,y0,x1,y1){c.moveTo(x0,y0);c.lineTo(x1,y1);}
 // ---------------- label ----------------
 var LABEL='CHAT // ENCRYPTED';
 function drawLabel(c,alpha){
-  c.font='700 13px CPLabel, "Chakra Petch", "Rajdhani", "Segoe UI", sans-serif'; c.textBaseline='top';
-  var track=3, wsum=0, ws=[]; for(var i=0;i<LABEL.length;i++){var w=c.measureText(LABEL[i]).width; ws.push(w); wsum+=w+track;} wsum-=track;
+  var LS=num('ls',0.958);
+  c.font='700 '+(13*LS).toFixed(2)+'px CPLabel, "Chakra Petch", "Rajdhani", "Segoe UI", sans-serif'; c.textBaseline='top';
+  var track=3*LS, wsum=0, ws=[]; for(var i=0;i<LABEL.length;i++){var w=c.measureText(LABEL[i]).width; ws.push(w); wsum+=w+track;} wsum-=track;
   var x=F.x+F.w-4-wsum, y=F.y+F.h+4;
   c.fillStyle=TEAL; c.globalAlpha=alpha;
   for(var j=0;j<LABEL.length;j++){ c.fillText(LABEL[j],x,y); x+=ws[j]+track; }
